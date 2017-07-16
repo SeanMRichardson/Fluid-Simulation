@@ -31,6 +31,7 @@ Host code
 #include <string.h>
 #include <math.h>
 
+#include <math_constants.h>
 
 // CUDA helper functions
 #include <helper_cuda.h>         // helper functions for CUDA error check
@@ -40,11 +41,17 @@ texture<unsigned char, 3, cudaReadModeNormalizedFloat> tex;  // 3D texture
 
 cudaArray *d_volumeArray = 0;
 
+//Round a / b to nearest higher integer value
+int cuda_iDivUp(int a, int b)
+{
+	return (a + (b - 1)) / b;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 //! Simple kernel to modify vertex positions in sine wave pattern
 //! @param data  data in global memory
 ///////////////////////////////////////////////////////////////////////////////
-__global__ void simple_vbo_kernel(float4 *pos, unsigned int width, unsigned int height, float time)
+__global__ void position_vbo_kernel(float4 *pos, unsigned int width, unsigned int height, float time)
 {
 	unsigned int x = blockIdx.x*blockDim.x + threadIdx.x;
 	unsigned int y = blockIdx.y*blockDim.y + threadIdx.y;
@@ -64,14 +71,39 @@ __global__ void simple_vbo_kernel(float4 *pos, unsigned int width, unsigned int 
 	pos[y*width + x] = make_float4(u, voxel, v, 1.0f);
 }
 
+__global__ void normal_vbo_kernel(float4 *pos, float4 *norms,unsigned int width, unsigned int height)
+{
+	unsigned int x = blockIdx.x*blockDim.x + threadIdx.x;
+	unsigned int y = blockIdx.y*blockDim.y + threadIdx.y;
+
+	// calculate uv coordinates
+	float u = x / (float)width;
+	float v = y / (float)height;
+	u = u*2.0f - 1.0f;
+	v = v*2.0f - 1.0f;
+
+	// write output normal
+	//norms[y*width + x] = make_float4(u, voxel, v, 1.0f);
+}
+
 extern "C"
-void render_kernel(float4 *pos, unsigned int mesh_width,
+void calculate_position_kernel(float4 *pos, unsigned int mesh_width,
 	unsigned int mesh_height, float time)
 {
 	// execute the kernel
 	dim3 block(8, 8, 1);
 	dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-	simple_vbo_kernel << < grid, block >> >(pos, mesh_width, mesh_height, time);
+	position_vbo_kernel << < grid, block >> >(pos, mesh_width, mesh_height, time);
+}
+
+extern "C"
+void calculate_normal_kernel(float4 *pos, float4 *norms, unsigned int mesh_width,
+	unsigned int mesh_height, float time)
+{
+	// execute the kernel
+	dim3 block(8, 8, 1);
+	dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
+	normal_vbo_kernel << < grid, block >> >(pos, norms, mesh_width, mesh_height);
 }
 
 extern "C"
@@ -99,4 +131,3 @@ void initCuda(const unsigned char *h_volume, cudaExtent volumeSize)
 	// bind array to 3D texture
 	checkCudaErrors(cudaBindTextureToArray(tex, d_volumeArray, channelDesc));
 }
-

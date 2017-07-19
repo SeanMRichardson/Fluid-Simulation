@@ -7,6 +7,8 @@ uniform float heightScale; // = 0.5;
 //uniform float chopiness;   // = 1.0;
 uniform vec2  size;        // = vec2(256.0, 256.0);
 
+//in vec4 normal;
+
 void main()
 {
     float height     = gl_MultiTexCoord0.y;

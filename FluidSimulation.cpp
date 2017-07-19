@@ -44,6 +44,10 @@ GLuint vbo;
 struct cudaGraphicsResource *cuda_vbo_resource;
 void *d_vbo_buffer = NULL;
 
+//GLuint nVbo;
+//struct cudaGraphicsResource *cuda_norm_resource;
+//void *d_norm_buffer = NULL;
+
 GLuint indexBuffer;
 GLuint shaderProg;
 char *vertShaderPath = 0, *fragShaderPath = 0;
@@ -68,7 +72,8 @@ unsigned int g_TotalErrors = 0;
 bool g_bQAReadback = false;
 
 float *g_hptr = NULL;
-float4 *dptr = 0;
+float4 *pptr = 0;
+//float4 *nptr = 0;
 
 int *pArgc = NULL;
 char **pArgv = NULL;
@@ -77,6 +82,7 @@ char **pArgv = NULL;
 
 extern "C" void initCuda(const unsigned char *h_volume, cudaExtent volumeSize);
 extern "C" void calculate_position_kernel(float4 *pos, unsigned int mesh_width, unsigned int mesh_height, float time);
+//extern "C" void calculate_normal_kernel(float4 *pos, float4 *norms, unsigned int mesh_width, unsigned int mesh_height);
 
 void loadVolumeData(char *exec_path);
 
@@ -107,6 +113,7 @@ void cleanup();
 // GL functionality
 bool initGL(int *argc, char **argv);
 void createVBO(GLuint *vbo, struct cudaGraphicsResource **vbo_res, unsigned int vbo_res_flags);
+//void createNVBO(GLuint *vbo, struct cudaGraphicsResource **vbo_res, unsigned int vbo_res_flags);
 void deleteVBO(GLuint *vbo, struct cudaGraphicsResource *vbo_res);
 
 void createVBO(GLuint *vbo, int size);
@@ -322,6 +329,8 @@ bool initGL(int *argc, char **argv)
 
 	// load shader
 	shaderProg = loadGLSLProgram(vertShaderPath, fragShaderPath);
+
+	//glBindAttribLocation(shaderProg, 0, "normal");
 
 	SDK_CHECK_ERROR_GL();
 
@@ -567,6 +576,7 @@ bool runTest(int argc, char **argv, char *ref_file)
 		// create vertex and index buffer for mesh
 		// create VBO
 		createVBO(&vbo, &cuda_vbo_resource, cudaGraphicsMapFlagsWriteDiscard);
+		//createNVBO(&nVbo, &cuda_norm_resource, cudaGraphicsMapFlagsWriteDiscard);
 
 		//createMeshPositionVBO(&vbo, mesh_width, mesh_height);
 		createMeshIndexBuffer(&indexBuffer, mesh_width, mesh_height);
@@ -591,19 +601,20 @@ void runCuda()
 	size_t num_bytes;
 	checkCudaErrors(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
 	
-	checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &num_bytes, cuda_vbo_resource));
+	checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&pptr, &num_bytes, cuda_vbo_resource));
 
-	calculate_position_kernel(dptr, mesh_width, mesh_height, g_fAnim);
-
-	//printf("CUDA mapped VBO: May access %ld bytes\n", num_bytes);
-
-	// execute the kernel
-	//    dim3 block(8, 8, 1);
-	//    dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-	//    kernel<<< grid, block>>>(dptr, mesh_width, mesh_height, g_fAnim);
+	calculate_position_kernel(pptr, mesh_width, mesh_height, g_fAnim);
 
 	// unmap buffer object
 	checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
+
+	/*checkCudaErrors(cudaGraphicsMapResources(1, &cuda_norm_resource, 0));
+
+	checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&nptr, &num_bytes, cuda_norm_resource));
+
+	calculate_normal_kernel(pptr, nptr, mesh_width, mesh_height);
+
+	checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_norm_resource, 0));*/
 }
 
 #ifdef _WIN32
@@ -681,6 +692,30 @@ void createVBO(GLuint *vbo, struct cudaGraphicsResource **vbo_res,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+//! Create VBO
+////////////////////////////////////////////////////////////////////////////////
+void createNVBO(GLuint *vbo, struct cudaGraphicsResource **vbo_res,
+	unsigned int vbo_res_flags)
+{
+	assert(vbo);
+
+	// create buffer object
+	glGenBuffers(1, vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, *vbo);
+
+	// initialize buffer object
+	unsigned int size = mesh_width * mesh_height * 4 * sizeof(float);
+	glBufferData(GL_ARRAY_BUFFER, size, 0, GL_DYNAMIC_DRAW);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	// register this buffer object with CUDA
+	checkCudaErrors(cudaGraphicsGLRegisterBuffer(vbo_res, *vbo, vbo_res_flags));
+
+	SDK_CHECK_ERROR_GL();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 //! Delete VBO
 ////////////////////////////////////////////////////////////////////////////////
 void deleteVBO(GLuint *vbo, struct cudaGraphicsResource *vbo_res)
@@ -720,7 +755,11 @@ void display()
 	glVertexPointer(4, GL_FLOAT, 0, 0);
 	//glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-	
+	/*glBindBuffer(GL_ARRAY_BUFFER, nVbo);
+	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(0);*/
+
+	//glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
 	glUseProgram(shaderProg);
 
@@ -739,13 +778,13 @@ void display()
 	glUniform3f(uniLightDir, 0.0f, 1.0f, 0.0f);
 
 	//
-	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+	/*glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
 
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	//glDrawElements(GL_TRIANGLE_STRIP, ((mesh_width * 2) + 2)*(mesh_height - 1), GL_UNSIGNED_INT, 0);
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glDrawElements(GL_TRIANGLE_STRIP, ((mesh_width * 2) + 2)*(mesh_height - 1), GL_UNSIGNED_INT, 0);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);*/
 
 	//
 	//glClientActiveTexture(GL_TEXTURE0);
@@ -784,6 +823,11 @@ void cleanup()
 	{
 		deleteVBO(&vbo, cuda_vbo_resource);
 	}
+
+	/*if (nVbo)
+	{
+		deleteVBO(&nVbo, cuda_norm_resource);
+	}*/
 }
 
 

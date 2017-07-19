@@ -71,7 +71,7 @@ __global__ void position_vbo_kernel(float4 *pos, unsigned int width, unsigned in
 	pos[y*width + x] = make_float4(u, voxel, v, 1.0f);
 }
 
-__global__ void normal_vbo_kernel(float4 *pos, float4 *norms,unsigned int width, unsigned int height)
+__global__ void normal_vbo_kernel(float4 *pos, float4 *norms, unsigned int width, unsigned int height)
 {
 	unsigned int x = blockIdx.x*blockDim.x + threadIdx.x;
 	unsigned int y = blockIdx.y*blockDim.y + threadIdx.y;
@@ -82,8 +82,32 @@ __global__ void normal_vbo_kernel(float4 *pos, float4 *norms,unsigned int width,
 	u = u*2.0f - 1.0f;
 	v = v*2.0f - 1.0f;
 
+	float3 a;
+	a.x = pos[y*width + x].x;
+	a.y = pos[y*width + x].y;
+	a.z = pos[y*width + x].z;
+	float3 b;
+	b.x = pos[y*width + x + 1].x;
+	b.y = pos[y*width + x + 1].y;
+	b.z = pos[y*width + x + 1].z;
+	float3 c;
+	c.x = pos[y*width + x + 2].x;
+	c.y = pos[y*width + x + 2].y;
+	c.z = pos[y*width + x + 2].z;
+
+	float3 normal = cross(b-a, c-a);
+
+	float4 n;
+	n.w = 1.0f;
+	n.x = normal.x;
+	n.y = normal.y;
+	n.z = normal.z;
+	
 	// write output normal
-	//norms[y*width + x] = make_float4(u, voxel, v, 1.0f);
+	norms[y*width + x] = n;
+	norms[y*width + x + 1] = n;
+	norms[y*width + x + 2] = n;
+
 }
 
 extern "C"
@@ -93,17 +117,17 @@ void calculate_position_kernel(float4 *pos, unsigned int mesh_width,
 	// execute the kernel
 	dim3 block(8, 8, 1);
 	dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-	position_vbo_kernel << < grid, block >> >(pos, mesh_width, mesh_height, time);
+	position_vbo_kernel <<< grid, block >>>(pos, mesh_width, mesh_height, time);
 }
 
 extern "C"
 void calculate_normal_kernel(float4 *pos, float4 *norms, unsigned int mesh_width,
-	unsigned int mesh_height, float time)
+	unsigned int mesh_height)
 {
 	// execute the kernel
 	dim3 block(8, 8, 1);
 	dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-	normal_vbo_kernel << < grid, block >> >(pos, norms, mesh_width, mesh_height);
+	normal_vbo_kernel <<< grid, block >>>(pos, norms, mesh_width, mesh_height);
 }
 
 extern "C"
